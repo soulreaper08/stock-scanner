@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeepSeek Stock Trader</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-gray-900 text-white">
+    <div id="app"></div>
+
+    <script type="module">
+        import React from 'https://esm.sh/react@18';
+        import ReactDOM from 'https://esm.sh/react-dom@18/client';
+        import { useState, useEffect } from 'https://esm.sh/react@18';
+
+        // CONFIGURATION - CHANGE THIS!
+        const GITHUB_USERNAME = 'soulreaper08';  // ← Change this
+        const REPO_NAME = 'stock-scanner';  // ← Change this if different
+        const REPORT_URL = `https://raw.githubusercontent.com/${GITHUB_USERNAME}/${REPO_NAME}/main/public/latest_report.json`;
+
+        // Main App
+        function App() {
+            const [reportData, setReportData] = useState(null);
+            const [portfolio, setPortfolio] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [activeTab, setActiveTab] = useState('report');
+            const [error, setError] = useState(null);
+
+            useEffect(() => {
+                fetchReport();
+                loadPortfolio();
+            }, []);
+
+            const fetchReport = async () => {
+                try {
+                    const response = await fetch(REPORT_URL);
+                    if (!response.ok) throw new Error('Failed to fetch report');
+                    const data = await response.json();
+                    setReportData(data);
+                    setLoading(false);
+                } catch (err) {
+                    console.error('Error:', err);
+                    setError('Could not load report. Using sample data.');
+                    setReportData(SAMPLE_DATA);
+                    setLoading(false);
+                }
+            };
+
+            const loadPortfolio = () => {
+                const saved = localStorage.getItem('portfolio');
+                if (saved) {
+                    setPortfolio(JSON.parse(saved));
+                }
+            };
+
+            const savePortfolio = (newPortfolio) => {
+                setPortfolio(newPortfolio);
+                localStorage.setItem('portfolio', JSON.stringify(newPortfolio));
+            };
+
+            const addToPortfolio = (stock) => {
+                const newPosition = {
+                    id: Date.now(),
+                    ticker: stock.ticker,
+                    entry: stock.entry,
+                    stopLoss: stock.stop_loss,
+                    target: stock.target,
+                    quantity: 1,
+                    entryDate: new Date().toISOString()
+                };
+                savePortfolio([...portfolio, newPosition]);
+                alert(`Added ${stock.ticker} to portfolio!`);
+            };
+
+            const removeFromPortfolio = (id) => {
+                if (confirm('Remove this position?')) {
+                    savePortfolio(portfolio.filter(p => p.id !== id));
+                }
+            };
+
+            return React.createElement('div', { className: 'min-h-screen' },
+                // Header
+                React.createElement('header', { className: 'bg-gray-800 border-b border-gray-700 p-4' },
+                    React.createElement('div', { className: 'max-w-7xl mx-auto flex items-center justify-between' },
+                        React.createElement('h1', { className: 'text-2xl font-bold' }, '📊 DeepSeek Trader'),
+                        React.createElement('div', { className: 'text-sm text-gray-400' }, 
+                            reportData?.time || 'Loading...'
+                        )
+                    )
+                ),
+
+                // Navigation
+                React.createElement('nav', { className: 'bg-gray-800 border-b border-gray-700' },
+                    React.createElement('div', { className: 'max-w-7xl mx-auto flex gap-4 p-4' },
+                        React.createElement('button', {
+                            onClick: () => setActiveTab('report'),
+                            className: `px-4 py-2 rounded font-semibold ${activeTab === 'report' ? 'bg-blue-600' : 'bg-gray-700 hover:bg-gray-600'}`
+                        }, 'Pre-Market Report'),
+                        React.createElement('button', {
+                            onClick: () => setActiveTab('portfolio'),
+                            className: `px-4 py-2 rounded font-semibold ${activeTab === 'portfolio' ? 'bg-blue-600' : 'bg-gray-700 hover:bg-gray-600'}`
+                        }, `Portfolio (${portfolio.length})`)
+                    )
+                ),
+
+                // Error banner
+                error && React.createElement('div', { className: 'bg-yellow-900/50 border-l-4 border-yellow-500 p-4 max-w-7xl mx-auto mt-4' },
+                    React.createElement('p', { className: 'text-sm' }, '⚠️ ' + error)
+                ),
+
+                // Main Content
+                React.createElement('main', { className: 'max-w-7xl mx-auto p-4' },
+                    loading ? 
+                        React.createElement('div', { className: 'text-center py-20 text-gray-400' }, 'Loading...') :
+                        activeTab === 'report' ?
+                            React.createElement(ReportView, { reportData, onAddToPortfolio: addToPortfolio }) :
+                            React.createElement(PortfolioView, { portfolio, onRemove: removeFromPortfolio })
+                )
+            );
+        }
+
+        function ReportView({ reportData, onAddToPortfolio }) {
+            if (!reportData?.hasBuySignals) {
+                return React.createElement('div', { className: 'bg-yellow-900/20 border border-yellow-700 rounded-lg p-8 text-center' },
+                    React.createElement('div', { className: 'text-6xl mb-4' }, '⚠️'),
+                    React.createElement('h2', { className: 'text-2xl font-bold mb-2' }, 'No Strong Signals Today'),
+                    React.createElement('p', { className: 'text-gray-400' }, 
+                        'The AI didn\'t find any high-confidence opportunities. Check back tomorrow!'
+                    )
+                );
+            }
+
+            return React.createElement('div', { className: 'space-y-6' },
+                // Global Markets
+                React.createElement('div', { className: 'bg-gray-800 rounded-lg p-6' },
+                    React.createElement('h2', { className: 'text-xl font-bold mb-4' }, '🌍 Global Markets'),
+                    React.createElement('div', { className: 'grid grid-cols-2 md:grid-cols-4 gap-4' },
+                        Object.entries(reportData.globalSentiment || {}).map(([market, change]) =>
+                            React.createElement('div', { key: market, className: 'bg-gray-700 rounded p-4' },
+                                React.createElement('div', { className: 'text-sm text-gray-400' }, market),
+                                React.createElement('div', { 
+                                    className: `text-xl font-bold ${change >= 0 ? 'text-green-500' : 'text-red-500'}`
+                                }, `${change >= 0 ? '+' : ''}${change}%`)
+                            )
+                        )
+                    )
+                ),
+
+                // Recommendations
+                React.createElement('div', null,
+                    React.createElement('h2', { className: 'text-2xl font-bold mb-4' }, '⭐ Top Recommendations'),
+                    React.createElement('div', { className: 'space-y-4' },
+                        reportData.recommendations?.map((stock, i) =>
+                            React.createElement(StockCard, { 
+                                key: i, 
+                                stock, 
+                                index: i, 
+                                onAdd: onAddToPortfolio 
+                            })
+                        )
+                    )
+                )
+            );
+        }
+
+        function StockCard({ stock, index, onAdd }) {
+            const profit = ((stock.target - stock.entry) / stock.entry * 100).toFixed(1);
+            const risk = ((stock.entry - stock.stop_loss) / stock.entry * 100).toFixed(1);
+            const riskReward = (profit / risk).toFixed(2);
+
+            return React.createElement('div', { className: 'bg-gray-800 rounded-lg p-6 border-l-4 border-green-500 hover:shadow-lg transition' },
+                // Header
+                React.createElement('div', { className: 'flex justify-between items-start mb-4' },
+                    React.createElement('div', null,
+                        React.createElement('h3', { className: 'text-2xl font-bold' }, 
+                            `${index + 1}. ${stock.ticker}`
+                        ),
+                        React.createElement('p', { className: 'text-gray-400 mt-2' }, stock.reason)
+                    ),
+                    React.createElement('div', { className: 'text-right' },
+                        React.createElement('div', { className: 'text-sm text-gray-400' }, 'Confidence'),
+                        React.createElement('div', { className: 'text-2xl font-bold text-green-500' }, 
+                            `${stock.confidence}%`
+                        )
+                    )
+                ),
+
+                // Price Targets
+                React.createElement('div', { className: 'grid grid-cols-3 gap-4 mb-4' },
+                    React.createElement('div', { className: 'bg-gray-700 rounded p-3' },
+                        React.createElement('div', { className: 'text-sm text-gray-400 mb-1' }, '💰 Entry'),
+                        React.createElement('div', { className: 'text-xl font-bold' }, `₹${stock.entry}`)
+                    ),
+                    React.createElement('div', { className: 'bg-red-900/30 rounded p-3' },
+                        React.createElement('div', { className: 'text-sm text-gray-400 mb-1' }, '🛑 Stop Loss'),
+                        React.createElement('div', { className: 'text-xl font-bold' }, `₹${stock.stop_loss}`)
+                    ),
+                    React.createElement('div', { className: 'bg-green-900/30 rounded p-3' },
+                        React.createElement('div', { className: 'text-sm text-gray-400 mb-1' }, '🎯 Target'),
+                        React.createElement('div', { className: 'text-xl font-bold' }, `₹${stock.target}`)
+                    )
+                ),
+
+                // Metrics
+                React.createElement('div', { className: 'grid grid-cols-2 gap-4 mb-4' },
+                    React.createElement('div', null,
+                        React.createElement('div', { className: 'text-sm text-gray-400 mb-2' }, 'Risk Score'),
+                        React.createElement('div', { className: 'bg-gray-700 rounded-full h-3' },
+                            React.createElement('div', { 
+                                className: 'bg-yellow-500 h-3 rounded-full',
+                                style: { width: `${stock.risk_score * 10}%` }
+                            })
+                        ),
+                        React.createElement('div', { className: 'text-xs text-gray-500 mt-1' }, 
+                            `${stock.risk_score}/10`
+                        )
+                    ),
+                    React.createElement('div', null,
+                        React.createElement('div', { className: 'text-sm text-gray-400 mb-1' }, 'Potential'),
+                        React.createElement('div', { className: 'text-green-500 font-bold text-lg' }, 
+                            `+${profit}%`
+                        ),
+                        React.createElement('div', { className: 'text-xs text-gray-500' }, 
+                            `Risk/Reward: 1:${riskReward}`
+                        )
+                    )
+                ),
+
+                // Add Button
+                React.createElement('button', {
+                    onClick: () => onAdd(stock),
+                    className: 'w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded transition'
+                }, 'Add to Portfolio')
+            );
+        }
+
+        function PortfolioView({ portfolio, onRemove }) {
+            if (portfolio.length === 0) {
+                return React.createElement('div', { className: 'bg-gray-800 rounded-lg p-12 text-center' },
+                    React.createElement('div', { className: 'text-6xl mb-4' }, '💼'),
+                    React.createElement('h2', { className: 'text-2xl font-bold mb-2' }, 'No Positions Yet'),
+                    React.createElement('p', { className: 'text-gray-400' }, 
+                        'Add stocks from the Pre-Market Report to start tracking'
+                    )
+                );
+            }
+
+            const totalValue = portfolio.reduce((sum, p) => sum + (p.entry * p.quantity), 0);
+            const potentialProfit = portfolio.reduce((sum, p) => 
+                sum + ((p.target - p.entry) * p.quantity), 0
+            );
+
+            return React.createElement('div', { className: 'space-y-6' },
+                // Summary
+                React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-3 gap-4' },
+                    React.createElement('div', { className: 'bg-gray-800 rounded-lg p-6' },
+                        React.createElement('div', { className: 'text-sm text-gray-400' }, 'Total Positions'),
+                        React.createElement('div', { className: 'text-3xl font-bold' }, portfolio.length)
+                    ),
+                    React.createElement('div', { className: 'bg-gray-800 rounded-lg p-6' },
+                        React.createElement('div', { className: 'text-sm text-gray-400' }, 'Total Invested'),
+                        React.createElement('div', { className: 'text-3xl font-bold' }, `₹${totalValue.toFixed(0)}`)
+                    ),
+                    React.createElement('div', { className: 'bg-gray-800 rounded-lg p-6' },
+                        React.createElement('div', { className: 'text-sm text-gray-400' }, 'Potential Profit'),
+                        React.createElement('div', { className: 'text-3xl font-bold text-green-500' }, 
+                            `₹${potentialProfit.toFixed(0)}`
+                        )
+                    )
+                ),
+
+                // Positions
+                React.createElement('div', null,
+                    React.createElement('h2', { className: 'text-2xl font-bold mb-4' }, '📊 Active Positions'),
+                    React.createElement('div', { className: 'space-y-4' },
+                        portfolio.map(position =>
+                            React.createElement(PositionCard, { 
+                                key: position.id, 
+                                position, 
+                                onRemove 
+                            })
+                        )
+                    )
+                )
+            );
+        }
+
+        function PositionCard({ position, onRemove }) {
+            const profit = ((position.target - position.entry) / position.entry * 100).toFixed(1);
+            const risk = ((position.entry - position.stopLoss) / position.entry * 100).toFixed(1);
+
+            return React.createElement('div', { className: 'bg-gray-800 rounded-lg p-6' },
+                React.createElement('div', { className: 'flex justify-between items-start mb-4' },
+                    React.createElement('div', null,
+                        React.createElement('h3', { className: 'text-xl font-bold' }, position.ticker),
+                        React.createElement('p', { className: 'text-sm text-gray-400' }, 
+                            `Added: ${new Date(position.entryDate).toLocaleDateString()}`
+                        )
+                    ),
+                    React.createElement('button', {
+                        onClick: () => onRemove(position.id),
+                        className: 'text-red-500 hover:text-red-400 font-semibold'
+                    }, 'Remove')
+                ),
+
+                React.createElement('div', { className: 'grid grid-cols-3 gap-4 mb-4' },
+                    React.createElement('div', null,
+                        React.createElement('div', { className: 'text-sm text-gray-400' }, 'Entry'),
+                        React.createElement('div', { className: 'text-lg font-bold' }, `₹${position.entry}`)
+                    ),
+                    React.createElement('div', null,
+                        React.createElement('div', { className: 'text-sm text-gray-400' }, 'Stop Loss'),
+                        React.createElement('div', { className: 'text-lg font-bold text-red-500' }, 
+                            `₹${position.stopLoss}`
+                        )
+                    ),
+                    React.createElement('div', null,
+                        React.createElement('div', { className: 'text-sm text-gray-400' }, 'Target'),
+                        React.createElement('div', { className: 'text-lg font-bold text-green-500' }, 
+                            `₹${position.target}`
+                        )
+                    )
+                ),
+
+                React.createElement('div', { className: 'bg-gray-700 rounded p-4' },
+                    React.createElement('div', { className: 'flex justify-between text-sm mb-2' },
+                        React.createElement('span', null, 'Potential Profit:'),
+                        React.createElement('span', { className: 'text-green-500 font-bold' }, `+${profit}%`)
+                    ),
+                    React.createElement('div', { className: 'flex justify-between text-sm' },
+                        React.createElement('span', null, 'Max Risk:'),
+                        React.createElement('span', { className: 'text-red-500 font-bold' }, `-${risk}%`)
+                    )
+                )
+            );
+        }
+
+        // Sample Data
+        const SAMPLE_DATA = {
+            timestamp: "2025-02-01T08:00:00",
+            date: "2025-02-01",
+            time: "08:00 AM IST",
+            globalSentiment: {
+                "S&P 500": 0.5,
+                "Nikkei": -0.3,
+                "Hang Seng": 1.2,
+                "Nifty 50": 0.8
+            },
+            recommendations: [
+                {
+                    ticker: "TCS.NS",
+                    action: "BUY",
+                    entry: 3500,
+                    stop_loss: 3325,
+                    target: 3850,
+                    risk_score: 4,
+                    confidence: 78,
+                    reason: "Strong technical breakout with increasing volume and positive sector news"
+                },
+                {
+                    ticker: "RELIANCE.NS",
+                    action: "BUY",
+                    entry: 2450,
+                    stop_loss: 2327,
+                    target: 2695,
+                    risk_score: 5,
+                    confidence: 72,
+                    reason: "Bullish MACD crossover with strong institutional buying"
+                }
+            ],
+            totalScanned: 50,
+            totalCandidates: 10,
+            hasBuySignals: true
+        };
+
+        // Render
+        const root = ReactDOM.createRoot(document.getElementById('app'));
+        root.render(React.createElement(App));
+    </script>
+</body>
+</html>
