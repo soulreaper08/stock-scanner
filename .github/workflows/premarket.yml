@@ -1,0 +1,95 @@
+name: Pre-Market Stock Scanner
+
+on:
+  schedule:
+    # Runs at 8:00 AM IST (2:30 AM UTC) Monday-Friday
+    - cron: '30 2 * * 1-5'
+  
+  # Allow manual trigger for testing
+  workflow_dispatch:
+
+jobs:
+  scan-stocks:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install yfinance==0.2.40
+          pip install pandas==2.2.2
+          pip install pandas-ta==0.3.14b0
+          pip install requests==2.32.3
+          pip install duckduckgo-search==6.1.7
+          pip install python-telegram-bot==21.3
+      
+      - name: Run stock scanner
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python scanner.py
+          
+      - name: Upload report artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: daily-report
+          path: |
+            latest_report.txt
+            report_data.json
+          retention-days: 7
+      
+      - name: Commit report to repository
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          # Create reports directory if it doesn't exist
+          mkdir -p reports
+          
+          # Copy report with timestamp
+          TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+          cp latest_report.txt "reports/report_${TIMESTAMP}.txt"
+          cp report_data.json public/latest_report.json
+          
+          # Add and commit
+          git add reports/ public/latest_report.json
+          git diff --quiet && git diff --staged --quiet || git commit -m "📊 Pre-market report: $(date +"%Y-%m-%d %H:%M IST")"
+          
+      - name: Push changes
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ github.ref }}
+      
+      - name: Send success notification
+        if: success()
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            -d text="✅ Pre-market scan completed successfully! Check your report." \
+            -d parse_mode="HTML"
+      
+      - name: Send failure notification
+        if: failure()
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            -d text="❌ Pre-market scan failed! Check GitHub Actions logs." \
+            -d parse_mode="HTML"
